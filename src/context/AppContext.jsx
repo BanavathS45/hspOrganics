@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { 
   authService, productService, orderService, addressService, 
   notificationService, wishlistService, couponService 
 } from '../firebase/db';
+import { registerFCMToken, initForegroundMessaging } from '../firebase/messaging';
 import { calculateDistance, FARM_LOCATION, calculateDeliveryCharge } from '../utils/geo';
 
 const AppContext = createContext();
@@ -29,11 +30,25 @@ export const AppProvider = ({ children }) => {
   // Active in-app notification state for real-time alerts
   const [activeToast, setActiveToast] = useState(null);
 
+  // Ref to cleanup foreground FCM listener on logout
+  const fcmUnsubRef = useRef(null);
+
   // Initialize Session — listens for real Firebase auth changes OR reads mock session
   useEffect(() => {
     const unsubAuth = authService.onAuthStateChanged(async (activeUser) => {
       if (activeUser) {
         setUser(activeUser);
+        // Request browser push notification permission if default
+        if (typeof window !== 'undefined' && 'Notification' in window) {
+          if (Notification.permission === 'default') {
+            Notification.requestPermission().catch(console.error);
+          }
+        }
+        // Register FCM token for this device (stores token in Firestore)
+        registerFCMToken(activeUser.uid).catch(console.error);
+        // Start listening for foreground push messages
+        if (fcmUnsubRef.current) fcmUnsubRef.current();
+        fcmUnsubRef.current = initForegroundMessaging();
         // Load user addresses
         const addrs = await addressService.getByUser(activeUser.uid);
         setAddresses(addrs);
