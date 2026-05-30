@@ -5,31 +5,32 @@ import { getFirestore } from 'firebase/firestore';
 
 // All credentials come from Vite environment variables (.env file)
 const firebaseConfig = {
-  apiKey:            import.meta.env.VITE_FIREBASE_API_KEY            || "",
-  authDomain:        import.meta.env.VITE_FIREBASE_AUTH_DOMAIN        || "",
-  projectId:         import.meta.env.VITE_FIREBASE_PROJECT_ID         || "",
-  storageBucket:     import.meta.env.VITE_FIREBASE_STORAGE_BUCKET     || "",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
   messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
-  appId:             import.meta.env.VITE_FIREBASE_APP_ID             || ""
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || ""
 };
 
 let app;
-let auth       = null;
-let db         = null;
+let auth = null;
+let db = null;
 let googleProvider = null;
-let isMock     = true;
+let isMock = true;
 
-// Only initialize real Firebase when all keys are present
+// Only initialize real Firebase when all keys are present and look real
 const isValidConfig =
   firebaseConfig.apiKey &&
-  firebaseConfig.apiKey !== "YOUR_API_KEY" &&
+  firebaseConfig.apiKey.length > 10 &&
   !firebaseConfig.apiKey.startsWith("YOUR_");
+
 
 if (isValidConfig) {
   try {
-    app            = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-    auth           = getAuth(app);
-    db             = getFirestore(app);
+    app = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+    auth = getAuth(app);
+    db = getFirestore(app);
     googleProvider = new GoogleAuthProvider();
 
     // Request email + profile scopes so we get displayName and photoURL
