@@ -51,11 +51,11 @@ function App() {
       {showSplash && (
         <div className="splash-overlay">
           <div className="text-center animate-fade-in-up">
-            <div 
+            <div
               className="bg-white text-success p-3.5 rounded-circle d-inline-flex align-items-center justify-content-center mb-3 shadow-lg"
               style={{ width: '80px', height: '80px' }}
             >
-              <h2 className="m-0 font-heading fw-extrabold" style={{ fontSize: '32px' }}>H</h2>
+              <img src="logo.png" className="m-0 font-heading fw-extrabold" style={{ fontSize: '32px' }} width={"100%"} />
             </div>
             <h1 className="font-heading fw-extrabold text-white m-0" style={{ fontSize: '28px', letterSpacing: '-0.5px' }}>
               HSP Organics
@@ -63,7 +63,7 @@ function App() {
             <p className="font-body text-white-50 text-xs mt-1" style={{ letterSpacing: '2px', textTransform: 'uppercase' }}>
               “From Farm To Home”
             </p>
-            
+
             <div className="mt-4 d-flex align-items-center justify-content-center gap-1 text-xs text-white-50">
               <Sparkles size={14} className="pulse-animation" />
               <span>Certified Organic Produce</span>
@@ -80,7 +80,7 @@ function App() {
         <Routes>
           {/* Customer Storefront Auth Page */}
           <Route path="/login" element={<Login />} />
-          
+
           {/* Customer Storefront Pages Layout */}
           <Route path="/" element={<CustomerLayout />}>
             <Route index element={<Home />} />

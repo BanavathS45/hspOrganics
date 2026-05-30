@@ -41,7 +41,7 @@ const CustomerHeader = ({ onOpenAddressModal }) => {
         {/* Branding & Logo */}
         <Link to="/" className="d-flex align-items-center text-decoration-none">
           <div className="bg-success text-white p-2 rounded-circle me-2 d-flex align-items-center justify-content-center" style={{ width: '36px', height: '36px' }}>
-            <img className="fw-bold font-heading" src="/logo.png" alt="logo" />
+            <img className="fw-bold font-heading" src="/logo.png" alt="logo" style={{ width: '100%' }} />
           </div>
           <div>
             <h5 className="m-0 font-heading fw-bold text-success" style={{ letterSpacing: '-0.5px', fontSize: '18px' }}>
