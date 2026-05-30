@@ -1,4 +1,4 @@
-// HSP Organics Database Service (Supports real Firebase + High-Fidelity LocalStorage Fallback)
+// HSP Organics Database Service (Supports real Firebase Firestore + High-Fidelity LocalStorage Fallback)
 import { isMock, db, auth, googleProvider } from './config';
 import {
   signInWithPopup,
@@ -8,7 +8,7 @@ import {
 } from 'firebase/auth';
 import {
   collection, doc, getDocs, getDoc, addDoc, updateDoc, deleteDoc,
-  query, where, onSnapshot, orderBy, Timestamp
+  query, where, onSnapshot, orderBy, limit, setDoc, writeBatch
 } from 'firebase/firestore';
 
 // Initial preloaded database assets (Premium organic groceries)
@@ -120,20 +120,7 @@ const INITIAL_PRODUCTS = [
     featured: true,
     bestSeller: false
   },
-  {
-    id: 'prod-fruit-4',
-    name: 'Fresh Sweet Pomegranate (Anar)',
-    category: 'Fruits',
-    price: 240,
-    unit: '1kg',
-    stock: 18,
-    description: 'Juicy, deep red ruby arils with sweet taste. High in antioxidants, vitamin K, and potassium.',
-    organicInfo: 'Directly sourced from organic orchard farms of Maharashtra.',
-    image: 'https://images.unsplash.com/photo-1614735249478-f71694f4c27a?w=600&auto=format&fit=crop&q=80',
-    featured: false,
-    bestSeller: false
-  },
-
+  
   // Oils
   {
     id: 'prod-oil-1',
@@ -174,32 +161,6 @@ const INITIAL_PRODUCTS = [
     organicInfo: 'Grown on organic coastlands, chemical fertilizer free.',
     image: 'https://images.unsplash.com/photo-1568254183919-78a4f43a2877?w=600&auto=format&fit=crop&q=80',
     featured: true,
-    bestSeller: true
-  },
-  {
-    id: 'prod-drink-2',
-    name: 'Pure Hibiscus Iced Tea',
-    category: 'Cool Drinks',
-    price: 75,
-    unit: '350ml',
-    stock: 25,
-    description: 'Tart, ruby-red herbal infusion of real organic hibiscus flowers sweetened with raw organic honey. Extremely refreshing and rich in Vitamin C.',
-    organicInfo: 'Brewed from dried organic petals, sugar-free, sweetened with pure honey.',
-    image: 'https://images.unsplash.com/photo-1556881286-fc6915169721?w=600&auto=format&fit=crop&q=80',
-    featured: false,
-    bestSeller: false
-  },
-  {
-    id: 'prod-drink-3',
-    name: 'Tangy Organic Mint Lemonade',
-    category: 'Cool Drinks',
-    price: 50,
-    unit: '350ml',
-    stock: 35,
-    description: 'Zesty lemon juice infused with fresh mint leaves and organic brown sugar. Perfect cool drink for detoxification and digestion.',
-    organicInfo: 'Fresh hand-squeezed lemons, organic mint, organic unrefined sugar.',
-    image: 'https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?w=600&auto=format&fit=crop&q=80',
-    featured: false,
     bestSeller: true
   }
 ];
@@ -255,17 +216,6 @@ const initLocalStorageDB = () => {
         lat: 12.9234,
         lng: 77.6854,
         isDefault: true
-      },
-      {
-        id: 'addr-2',
-        userId: 'user-demo',
-        name: 'Office',
-        addressLine: 'Ecospace Business Park, Bellandur, Phase 3',
-        city: 'Bengaluru',
-        postalCode: '560103',
-        lat: 12.9344,
-        lng: 77.6744,
-        isDefault: false
       }
     ]));
   }
@@ -275,8 +225,7 @@ const initLocalStorageDB = () => {
   if (!localStorage.getItem('hsp_coupons')) {
     localStorage.setItem('hsp_coupons', JSON.stringify([
       { id: 'cpn-1', code: 'ORGANIC20', discountType: 'percentage', discountValue: 20, minCartValue: 300, description: '20% Off on orders above ₹300' },
-      { id: 'cpn-2', code: 'FREE50', discountType: 'flat', discountValue: 50, minCartValue: 200, description: 'Flat ₹50 Off on orders above ₹200' },
-      { id: 'cpn-3', code: 'FARMTY10', discountType: 'percentage', discountValue: 10, minCartValue: 0, description: '10% Off for your loyalty' }
+      { id: 'cpn-2', code: 'FREE50', discountType: 'flat', discountValue: 50, minCartValue: 200, description: 'Flat ₹50 Off on orders above ₹200' }
     ]));
   }
 };
@@ -310,8 +259,8 @@ const triggerCollectionChange = (collectionKey) => {
   const fullKey = `hsp_${collectionKey}`;
   if (eventListeners[fullKey]) {
     const rawData = localStorage.getItem(fullKey);
-    const parsedData = rawData ? JSON.parse(rawData) : [];
-    eventListeners[fullKey].forEach(cb => cb(parsedData));
+    const parsed = rawData ? JSON.parse(rawData) : [];
+    eventListeners[fullKey].forEach(cb => cb(parsed));
   }
 };
 
@@ -354,7 +303,6 @@ export const authService = {
         sessionStorage.setItem('hsp_session', JSON.stringify(userObj));
         return userObj;
       } catch (error) {
-        // popup blocked or closed — propagate error to UI
         throw new Error(error.message || 'Google Sign-In was cancelled or blocked.');
       }
     }
@@ -448,15 +396,66 @@ export const authService = {
 // 2. Product Services (CRUD)
 export const productService = {
   getAll: async () => {
+    if (!isMock && db) {
+      try {
+        const querySnapshot = await getDocs(collection(db, 'products'));
+        const list = [];
+        querySnapshot.forEach((doc) => {
+          list.push({ id: doc.id, ...doc.data() });
+        });
+        // Seed default products to Firestore if it's completely empty on first launch
+        if (list.length === 0) {
+          for (const p of INITIAL_PRODUCTS) {
+            await setDoc(doc(db, 'products', p.id), p);
+            list.push(p);
+          }
+        }
+        return list;
+      } catch (err) {
+        console.error("Firestore products read failed: ", err);
+      }
+    }
     const raw = localStorage.getItem('hsp_products');
     return raw ? JSON.parse(raw) : [];
   },
   
   subscribe: (callback) => {
+    if (!isMock && db) {
+      return onSnapshot(collection(db, 'products'), (snapshot) => {
+        const list = [];
+        snapshot.forEach((doc) => {
+          list.push({ id: doc.id, ...doc.data() });
+        });
+        callback(list);
+      }, (err) => {
+        console.error("Firestore products subscription failed, falling back to local: ", err);
+      });
+    }
     return subscribeToLocalCollection('products', callback);
   },
 
   add: async (productData) => {
+    if (!isMock && db) {
+      const docRef = await addDoc(collection(db, 'products'), {
+        ...productData,
+        price: parseFloat(productData.price),
+        stock: parseInt(productData.stock),
+        featured: !!productData.featured,
+        bestSeller: !!productData.bestSeller,
+        createdAt: new Date().toISOString()
+      });
+      const newProduct = { id: docRef.id, ...productData };
+      
+      // Trigger notification
+      await notificationService.addSystemNotification({
+        title: 'New Organic Harvest!',
+        body: `${newProduct.name} is now available in the ${newProduct.category} section!`,
+        type: 'new_product'
+      });
+      
+      return newProduct;
+    }
+
     const products = JSON.parse(localStorage.getItem('hsp_products') || '[]');
     const newProduct = {
       ...productData,
@@ -470,7 +469,6 @@ export const productService = {
     localStorage.setItem('hsp_products', JSON.stringify(products));
     triggerCollectionChange('products');
     
-    // Trigger FCM notifications manually
     notificationService.addSystemNotification({
       title: 'New Organic Harvest!',
       body: `${newProduct.name} is now available in the ${newProduct.category} section!`,
@@ -481,18 +479,37 @@ export const productService = {
   },
 
   update: async (productId, updatedFields) => {
+    const cleanFields = {
+      ...updatedFields,
+      price: parseFloat(updatedFields.price),
+      stock: parseInt(updatedFields.stock)
+    };
+
+    if (!isMock && db) {
+      const docRef = doc(db, 'products', productId);
+      await updateDoc(docRef, cleanFields);
+
+      // Low stock notification
+      if (cleanFields.stock <= 5) {
+        await notificationService.addSystemNotification({
+          title: 'Inventory Alert ⚠️',
+          body: `Low stock alert: ${cleanFields.name} has only ${cleanFields.stock} units left!`,
+          type: 'inventory_alert',
+          userId: 'admin'
+        });
+      }
+      return { id: productId, ...cleanFields };
+    }
+
     const products = JSON.parse(localStorage.getItem('hsp_products') || '[]');
     const index = products.findIndex(p => p.id === productId);
     if (index === -1) throw new Error("Product not found");
     
     products[index] = {
       ...products[index],
-      ...updatedFields,
-      price: parseFloat(updatedFields.price),
-      stock: parseInt(updatedFields.stock)
+      ...cleanFields
     };
     
-    // Check inventory alerts
     if (products[index].stock <= 5) {
       notificationService.addSystemNotification({
         title: 'Inventory Alert ⚠️',
@@ -508,6 +525,11 @@ export const productService = {
   },
 
   delete: async (productId) => {
+    if (!isMock && db) {
+      await deleteDoc(doc(db, 'products', productId));
+      return true;
+    }
+
     let products = JSON.parse(localStorage.getItem('hsp_products') || '[]');
     products = products.filter(p => p.id !== productId);
     localStorage.setItem('hsp_products', JSON.stringify(products));
@@ -519,14 +541,58 @@ export const productService = {
 // 3. Address Services
 export const addressService = {
   getByUser: async (userId) => {
+    if (!isMock && db) {
+      const q = query(collection(db, 'addresses'), where('userId', '==', userId));
+      const querySnapshot = await getDocs(q);
+      const list = [];
+      querySnapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() });
+      });
+      return list;
+    }
+
     const addresses = JSON.parse(localStorage.getItem('hsp_addresses') || '[]');
     return addresses.filter(a => a.userId === userId);
   },
 
   save: async (userId, addressData) => {
+    if (!isMock && db) {
+      // If saving as default, reset other addresses in Firestore
+      if (addressData.isDefault) {
+        const q = query(collection(db, 'addresses'), where('userId', '==', userId));
+        const snapshot = await getDocs(q);
+        const batch = writeBatch(db);
+        snapshot.forEach((d) => {
+          if (d.data().isDefault) {
+            batch.update(d.ref, { isDefault: false });
+          }
+        });
+        await batch.commit();
+      }
+
+      const cleanAddress = {
+        name: addressData.name,
+        addressLine: addressData.addressLine,
+        city: addressData.city,
+        postalCode: addressData.postalCode,
+        lat: addressData.lat || 12.9716,
+        lng: addressData.lng || 77.5946,
+        isDefault: !!addressData.isDefault,
+        userId
+      };
+
+      if (addressData.id) {
+        // Edit existing doc
+        await setDoc(doc(db, 'addresses', addressData.id), cleanAddress, { merge: true });
+        return { id: addressData.id, ...cleanAddress };
+      } else {
+        // Create new doc
+        const docRef = await addDoc(collection(db, 'addresses'), cleanAddress);
+        return { id: docRef.id, ...cleanAddress };
+      }
+    }
+
     const addresses = JSON.parse(localStorage.getItem('hsp_addresses') || '[]');
-    
-    // If setting as default, reset other addresses
     if (addressData.isDefault) {
       addresses.forEach(a => {
         if (a.userId === userId) a.isDefault = false;
@@ -537,16 +603,14 @@ export const addressService = {
       ...addressData,
       id: addressData.id || 'addr-' + Math.random().toString(36).substring(2, 9),
       userId,
-      lat: addressData.lat || 12.9716, // Default Bangalore coordinates
+      lat: addressData.lat || 12.9716,
       lng: addressData.lng || 77.5946
     };
 
     if (addressData.id) {
-      // Edit
       const index = addresses.findIndex(a => a.id === addressData.id);
       if (index !== -1) addresses[index] = newAddress;
     } else {
-      // Add
       addresses.push(newAddress);
     }
 
@@ -555,6 +619,11 @@ export const addressService = {
   },
 
   delete: async (addressId) => {
+    if (!isMock && db) {
+      await deleteDoc(doc(db, 'addresses', addressId));
+      return true;
+    }
+
     let addresses = JSON.parse(localStorage.getItem('hsp_addresses') || '[]');
     addresses = addresses.filter(a => a.id !== addressId);
     localStorage.setItem('hsp_addresses', JSON.stringify(addresses));
@@ -565,23 +634,41 @@ export const addressService = {
 // 4. Order Services
 export const orderService = {
   getAll: async () => {
-    // Before loading orders, run the 30-day cleanup function
+    if (!isMock && db) {
+      const querySnapshot = await getDocs(collection(db, 'orders'));
+      const list = [];
+      querySnapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() });
+      });
+      // Sort by createdAt descending
+      list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+      return list;
+    }
+
     orderService.cleanupOldOrders();
-    
     const raw = localStorage.getItem('hsp_orders');
     return raw ? JSON.parse(raw) : [];
   },
 
   subscribe: (callback) => {
-    // Cleanup old orders on subscription
+    if (!isMock && db) {
+      return onSnapshot(collection(db, 'orders'), (snapshot) => {
+        const list = [];
+        snapshot.forEach((doc) => {
+          list.push({ id: doc.id, ...doc.data() });
+        });
+        list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        callback(list);
+      });
+    }
+
     orderService.cleanupOldOrders();
     return subscribeToLocalCollection('orders', callback);
   },
 
   create: async (userId, orderData) => {
-    const orders = JSON.parse(localStorage.getItem('hsp_orders') || '[]');
+    const orderId = 'HSP-' + Math.floor(100000 + Math.random() * 900000);
     const newOrder = {
-      id: 'HSP-' + Math.floor(100000 + Math.random() * 900000),
       userId,
       customerName: orderData.customerName || 'Customer',
       customerEmail: orderData.customerEmail || '',
@@ -593,20 +680,57 @@ export const orderService = {
       total: orderData.total,
       address: orderData.address,
       distanceKm: parseFloat(orderData.distanceKm.toFixed(1)),
-      status: 'Pending', // Pending, Accepted, Preparing, Out for Delivery, Delivered, Cancelled
+      status: 'Pending',
       createdAt: new Date().toISOString(),
       statusTimeline: [
         { status: 'Pending', time: new Date().toISOString(), message: 'Order placed successfully.' }
       ],
       paymentMethod: orderData.paymentMethod || 'Cash On Delivery',
-      deliveryOTP: Math.floor(1000 + Math.random() * 9000).toString(), // Delivery verification OTP
+      deliveryOTP: Math.floor(1000 + Math.random() * 9000).toString(),
     };
 
-    orders.unshift(newOrder); // Newest orders first
+    if (!isMock && db) {
+      // Save order to Firestore
+      await setDoc(doc(db, 'orders', orderId), newOrder);
+
+      // Decrement stocks in Firestore
+      const batch = writeBatch(db);
+      for (const item of orderData.items) {
+        const pRef = doc(db, 'products', item.id);
+        const pSnap = await getDoc(pRef);
+        if (pSnap.exists()) {
+          const currentStock = pSnap.data().stock || 0;
+          batch.update(pRef, { stock: Math.max(0, currentStock - item.quantity) });
+        }
+      }
+      await batch.commit();
+
+      // Trigger FCM Notification for Admin in Firestore
+      await notificationService.addSystemNotification({
+        title: 'New Order Received! 🛒',
+        body: `Order ${orderId} for ₹${newOrder.total} from ${newOrder.customerName}.`,
+        type: 'new_order',
+        userId: 'admin'
+      });
+
+      // Trigger FCM Notification for Customer in Firestore
+      await notificationService.addSystemNotification({
+        title: 'Order Placed! 🌱',
+        body: `Your order ${orderId} of ₹${newOrder.total} is pending admin acceptance.`,
+        type: 'order_status',
+        userId
+      });
+
+      return { id: orderId, ...newOrder };
+    }
+
+    const orders = JSON.parse(localStorage.getItem('hsp_orders') || '[]');
+    const finalOrder = { id: orderId, ...newOrder };
+    orders.unshift(finalOrder);
     localStorage.setItem('hsp_orders', JSON.stringify(orders));
     triggerCollectionChange('orders');
 
-    // Reduce inventory stocks
+    // Reduce inventory stocks locally
     const products = JSON.parse(localStorage.getItem('hsp_products') || '[]');
     orderData.items.forEach(orderItem => {
       const pIndex = products.findIndex(p => p.id === orderItem.id);
@@ -617,26 +741,63 @@ export const orderService = {
     localStorage.setItem('hsp_products', JSON.stringify(products));
     triggerCollectionChange('products');
 
-    // Trigger FCM Notification for Admin
     notificationService.addSystemNotification({
       title: 'New Order Received! 🛒',
-      body: `Order ${newOrder.id} for ₹${newOrder.total} from ${newOrder.customerName}.`,
+      body: `Order ${orderId} for ₹${finalOrder.total} from ${finalOrder.customerName}.`,
       type: 'new_order',
       userId: 'admin'
     });
 
-    // Trigger FCM Notification for Customer
     notificationService.addSystemNotification({
       title: 'Order Placed! 🌱',
-      body: `Your order ${newOrder.id} of ₹${newOrder.total} is pending admin acceptance.`,
+      body: `Your order ${orderId} of ₹${finalOrder.total} is pending admin acceptance.`,
       type: 'order_status',
       userId
     });
 
-    return newOrder;
+    return finalOrder;
   },
 
   updateStatus: async (orderId, newStatus) => {
+    if (!isMock && db) {
+      const oRef = doc(db, 'orders', orderId);
+      const oSnap = await getDoc(oRef);
+      if (!oSnap.exists()) throw new Error("Order not found");
+
+      const orderData = oSnap.data();
+      const oldStatus = orderData.status;
+      if (oldStatus === newStatus) return { id: orderId, ...orderData };
+
+      let timelineMessage = '';
+      switch(newStatus) {
+        case 'Accepted': timelineMessage = 'Your order has been accepted by the farm team.'; break;
+        case 'Preparing': timelineMessage = 'Harvesting fresh produce & packing your items.'; break;
+        case 'Out for Delivery': timelineMessage = 'Our delivery partner is on the way to your home.'; break;
+        case 'Delivered': timelineMessage = 'Order delivered successfully. Enjoy your organic goods!'; break;
+        case 'Cancelled': timelineMessage = 'Order has been cancelled.'; break;
+        default: timelineMessage = `Status updated to ${newStatus}.`;
+      }
+
+      const updatedTimeline = [
+        ...(orderData.statusTimeline || []),
+        { status: newStatus, time: new Date().toISOString(), message: timelineMessage }
+      ];
+
+      await updateDoc(oRef, {
+        status: newStatus,
+        statusTimeline: updatedTimeline
+      });
+
+      await notificationService.addSystemNotification({
+        title: `Order Update: ${newStatus} 📦`,
+        body: `Your order ${orderId} is now ${newStatus}. ${timelineMessage}`,
+        type: 'order_status',
+        userId: orderData.userId
+      });
+
+      return { id: orderId, ...orderData, status: newStatus, statusTimeline: updatedTimeline };
+    }
+
     const orders = JSON.parse(localStorage.getItem('hsp_orders') || '[]');
     const index = orders.findIndex(o => o.id === orderId);
     if (index === -1) throw new Error("Order not found");
@@ -646,7 +807,6 @@ export const orderService = {
 
     orders[index].status = newStatus;
     
-    // Add to timeline
     let timelineMessage = '';
     switch(newStatus) {
       case 'Accepted': timelineMessage = 'Your order has been accepted by the farm team.'; break;
@@ -666,7 +826,6 @@ export const orderService = {
     localStorage.setItem('hsp_orders', JSON.stringify(orders));
     triggerCollectionChange('orders');
 
-    // Push notification to Customer
     notificationService.addSystemNotification({
       title: `Order Update: ${newStatus} 📦`,
       body: `Your order ${orderId} is now ${newStatus}. ${timelineMessage}`,
@@ -677,8 +836,8 @@ export const orderService = {
     return orders[index];
   },
 
-  // Automatically delete order data after 30 days
   cleanupOldOrders: () => {
+    // Only local storage has size limit restrictions requiring 30-day purge
     const raw = localStorage.getItem('hsp_orders');
     if (!raw) return;
     
@@ -694,7 +853,6 @@ export const orderService = {
     if (orders.length !== remainingOrders.length) {
       localStorage.setItem('hsp_orders', JSON.stringify(remainingOrders));
       triggerCollectionChange('orders');
-      console.log(`HSP Organics CleanUp: Automatically purged ${orders.length - remainingOrders.length} orders older than 30 days.`);
     }
   }
 };
@@ -702,33 +860,52 @@ export const orderService = {
 // 5. Notifications Service
 export const notificationService = {
   subscribe: (callback) => {
+    if (!isMock && db) {
+      return onSnapshot(collection(db, 'notifications'), (snapshot) => {
+        const list = [];
+        snapshot.forEach((doc) => {
+          list.push({ id: doc.id, ...doc.data() });
+        });
+        list.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        callback(list);
+      });
+    }
     return subscribeToLocalCollection('notifications', callback);
   },
 
-  addSystemNotification: (notiData) => {
-    const notifications = JSON.parse(localStorage.getItem('hsp_notifications') || '[]');
-    const newNoti = {
-      id: 'noti-' + Math.random().toString(36).substring(2, 9),
+  addSystemNotification: async (notiData) => {
+    const cleanNoti = {
       title: notiData.title,
       body: notiData.body,
       createdAt: new Date().toISOString(),
       read: false,
       type: notiData.type || 'general',
-      userId: notiData.userId || 'all' // 'all', 'admin', or specific userId
+      userId: notiData.userId || 'all'
     };
 
+    if (!isMock && db) {
+      const docRef = await addDoc(collection(db, 'notifications'), cleanNoti);
+      const newNoti = { id: docRef.id, ...cleanNoti };
+
+      // Dispatch inside current browser tab too
+      const event = new CustomEvent('hsp_fcm_notification', { detail: newNoti });
+      window.dispatchEvent(event);
+      return newNoti;
+    }
+
+    const notifications = JSON.parse(localStorage.getItem('hsp_notifications') || '[]');
+    const newNoti = { id: 'noti-' + Math.random().toString(36).substring(2, 9), ...cleanNoti };
     notifications.unshift(newNoti);
     localStorage.setItem('hsp_notifications', JSON.stringify(notifications));
     triggerCollectionChange('notifications');
 
-    // Custom Web Notification dispatch for in-app browser alert simulation
+    // Trigger standard push alert if permission granted
     if (typeof window !== 'undefined' && 'Notification' in window) {
       if (Notification.permission === 'granted') {
         new Notification(newNoti.title, { body: newNoti.body, icon: '/pwa-192x192.png' });
       }
     }
     
-    // Broadcast a custom JS event for inside-app instant alerts
     const event = new CustomEvent('hsp_fcm_notification', { detail: newNoti });
     window.dispatchEvent(event);
 
@@ -736,6 +913,19 @@ export const notificationService = {
   },
 
   markAllAsRead: async (userId) => {
+    if (!isMock && db) {
+      const q = query(collection(db, 'notifications'), where('userId', 'in', ['all', userId]));
+      const snapshot = await getDocs(q);
+      const batch = writeBatch(db);
+      snapshot.forEach((d) => {
+        if (!d.data().read) {
+          batch.update(d.ref, { read: true });
+        }
+      });
+      await batch.commit();
+      return true;
+    }
+
     const notifications = JSON.parse(localStorage.getItem('hsp_notifications') || '[]');
     notifications.forEach(n => {
       if (n.userId === userId || n.userId === 'all') {
@@ -751,10 +941,33 @@ export const notificationService = {
 // 6. Wishlist Service
 export const wishlistService = {
   subscribe: (callback) => {
+    if (!isMock && db) {
+      return onSnapshot(collection(db, 'wishlist'), (snapshot) => {
+        const list = [];
+        snapshot.forEach((doc) => {
+          list.push({ id: doc.id, ...doc.data() });
+        });
+        callback(list);
+      });
+    }
     return subscribeToLocalCollection('wishlist', callback);
   },
 
   toggle: async (userId, productId) => {
+    if (!isMock && db) {
+      const q = query(collection(db, 'wishlist'), where('userId', '==', userId), where('productId', '==', productId));
+      const snapshot = await getDocs(q);
+      if (!snapshot.empty) {
+        // Already wishlisted, so delete it
+        await deleteDoc(snapshot.docs[0].ref);
+        return false;
+      } else {
+        // Not wishlisted, so add it
+        await addDoc(collection(db, 'wishlist'), { userId, productId });
+        return true;
+      }
+    }
+
     const wishlist = JSON.parse(localStorage.getItem('hsp_wishlist') || '[]');
     const index = wishlist.findIndex(w => w.userId === userId && w.productId === productId);
     
@@ -775,23 +988,61 @@ export const wishlistService = {
 // 7. Coupons Service
 export const couponService = {
   getAll: async () => {
+    if (!isMock && db) {
+      const querySnapshot = await getDocs(collection(db, 'coupons'));
+      const list = [];
+      querySnapshot.forEach((doc) => {
+        list.push({ id: doc.id, ...doc.data() });
+      });
+      // Seed default coupons if database is clean & empty
+      if (list.length === 0) {
+        const defaultCoupons = [
+          { id: 'cpn-1', code: 'ORGANIC20', discountType: 'percentage', discountValue: 20, minCartValue: 300, description: '20% Off on orders above ₹300' },
+          { id: 'cpn-2', code: 'FREE50', discountType: 'flat', discountValue: 50, minCartValue: 200, description: 'Flat ₹50 Off on orders above ₹200' }
+        ];
+        for (const c of defaultCoupons) {
+          await setDoc(doc(db, 'coupons', c.id), c);
+          list.push(c);
+        }
+      }
+      return list;
+    }
+
     const raw = localStorage.getItem('hsp_coupons');
     return raw ? JSON.parse(raw) : [];
   },
 
   subscribe: (callback) => {
+    if (!isMock && db) {
+      return onSnapshot(collection(db, 'coupons'), (snapshot) => {
+        const list = [];
+        snapshot.forEach((doc) => {
+          list.push({ id: doc.id, ...doc.data() });
+        });
+        callback(list);
+      });
+    }
     return subscribeToLocalCollection('coupons', callback);
   },
 
   add: async (couponData) => {
-    const coupons = JSON.parse(localStorage.getItem('hsp_coupons') || '[]');
-    const newCoupon = {
-      id: 'cpn-' + Math.random().toString(36).substring(2, 9),
+    const cleanCoupon = {
       code: couponData.code.toUpperCase().trim(),
       discountType: couponData.discountType,
       discountValue: parseFloat(couponData.discountValue),
       minCartValue: parseFloat(couponData.minCartValue || 0),
       description: couponData.description || `${couponData.discountValue}% Off`
+    };
+
+    if (!isMock && db) {
+      const docRef = await addDoc(collection(db, 'coupons'), cleanCoupon);
+      return { id: docRef.id, ...cleanCoupon };
+    }
+
+    const coupons = JSON.parse(localStorage.getItem('hsp_coupons') || '[]');
+    const newCoupon = {
+      id: 'cpn-' + Math.random().toString(36).substring(2, 9),
+      ...cleanCoupon
     };
     coupons.push(newCoupon);
     localStorage.setItem('hsp_coupons', JSON.stringify(coupons));
@@ -800,6 +1051,11 @@ export const couponService = {
   },
 
   delete: async (couponId) => {
+    if (!isMock && db) {
+      await deleteDoc(doc(db, 'coupons', couponId));
+      return true;
+    }
+
     let coupons = JSON.parse(localStorage.getItem('hsp_coupons') || '[]');
     coupons = coupons.filter(c => c.id !== couponId);
     localStorage.setItem('hsp_coupons', JSON.stringify(coupons));

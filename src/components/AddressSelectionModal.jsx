@@ -66,15 +66,17 @@ const AddressSelectionModal = ({ show, onClose }) => {
       postalCode,
       lat: mapCoords?.lat || 12.9716,
       lng: mapCoords?.lng || 77.5946,
-      isDefault: addresses.length === 0 // Make default if first address
+      isDefault: addresses.length === 0
     };
 
     try {
-      await saveAddress(payload);
+      const saved = await saveAddress(payload);
+      setSelectedAddress(saved);
       setIsAdding(false);
       // Reset form
       setAddressLine('');
       setPostalCode('');
+      onClose();
     } catch (err) {
       alert("Error saving address: " + err.message);
     }

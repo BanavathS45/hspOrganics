@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap, useMapEvents } from 'react-leaflet';
 import L from 'leaflet';
 import { FARM_LOCATION } from '../utils/geo';
 
@@ -36,6 +36,24 @@ const MapRecenter = ({ center }) => {
       map.setView(center, map.getZoom());
     }
   }, [center, map]);
+  return null;
+};
+
+// Component to handle map clicks and update pin
+const MapEvents = ({ isEditable, onLocationChange }) => {
+  useMapEvents({
+    click(e) {
+      if (isEditable && onLocationChange) {
+        onLocationChange({
+          lat: e.latlng.lat,
+          lng: e.latlng.lng,
+          addressLine: `Selected Pin Location (${e.latlng.lat.toFixed(4)}, ${e.latlng.lng.toFixed(4)})`,
+          city: 'Bengaluru',
+          postalCode: '560001'
+        });
+      }
+    }
+  });
   return null;
 };
 
@@ -91,6 +109,9 @@ const DeliveryMap = ({ customerLocation, onLocationChange, isEditable = false })
         
         {/* Map Recenter logic */}
         <MapRecenter center={customerCoords} />
+
+        {/* Map Click events to change marker location */}
+        <MapEvents isEditable={isEditable} onLocationChange={onLocationChange} />
 
         {/* 1. Farm Hub Marker */}
         <Marker position={[FARM_LOCATION.lat, FARM_LOCATION.lng]} icon={farmIcon}>

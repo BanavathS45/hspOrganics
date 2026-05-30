@@ -2,6 +2,7 @@ import React from 'react';
 import { useApp } from '../context/AppContext';
 import { MapPin, Sun, Moon, ShoppingCart, LogOut, Heart } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
+import { isMock } from '../firebase/config';
 
 const CustomerHeader = ({ onOpenAddressModal }) => {
   const {
@@ -44,9 +45,17 @@ const CustomerHeader = ({ onOpenAddressModal }) => {
             <img className="fw-bold font-heading" src="/logo.png" alt="logo" style={{ width: '100%' }} />
           </div>
           <div>
-            <h5 className="m-0 font-heading fw-bold text-success" style={{ letterSpacing: '-0.5px', fontSize: '18px' }}>
-              HSP Organics
-            </h5>
+            <div className="d-flex align-items-center gap-1">
+              <h5 className="m-0 font-heading fw-bold text-success" style={{ letterSpacing: '-0.5px', fontSize: '18px' }}>
+                HSP Organics
+              </h5>
+              <span 
+                className={`badge px-1.5 py-0.5 rounded-pill font-heading ${isMock ? 'bg-warning text-dark' : 'bg-success text-white'}`}
+                style={{ fontSize: '8px', textTransform: 'uppercase', letterSpacing: '0.3px' }}
+              >
+                {isMock ? 'Sandbox' : 'Live'}
+              </span>
+            </div>
             <span className="text-muted font-body" style={{ fontSize: '10px', display: 'block', marginTop: '-3px' }}>
               From Farm To Home
             </span>
